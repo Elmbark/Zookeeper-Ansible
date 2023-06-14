@@ -1,0 +1,86 @@
+- hosts: zookeeper
+  become: true
+  vars:
+    zookeeper_home: "/home/zookeeper"
+    zookeeper_version: "3.8.1"
+    zookeeper_data_dir: "/var/lib/zookeeper"
+    zookeeper_config_dir: "/etc/zookeeper"
+    zookeeper_client_port: 2181
+    zookeeper_servers: "server.1=zookeeper-1:2888:3888,server.2=zookeeper-2:2888:3888,server.3=zookeeper-3:2888:3888"
+    host_list:
+      - ip_address: 10.10.197.145
+        hostname: zookeeper-1
+        myid: 1
+      - ip_address: 10.10.197.96
+        hostname: zookeeper-2
+        myid: 2
+      - ip_address: 10.10.197.189
+        hostname: zookeeper-3
+        myid: 3
+
+  tasks:
+
+    - name: Install OpenJDK 8
+      apt:
+        name: openjdk-8-jdk
+        state: present
+        update_cache: yes
+
+    - name: Set JAVA_HOME environment variable
+      become: yes
+      lineinfile:
+        path: /etc/environment
+        line: 'JAVA_HOME="/usr/lib/jvm/java-8-openjdk-amd64"'
+        state: present
+        create: yes
+      notify: Reload environment variables
+
+
+    - name: Add hosts to /etc/hosts
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item.ip_address }} {{ item.hostname }} {{ item.alias | default('') }}"
+      with_items: "{{ host_list }}"
+
+    - name: Create ZooKeeper directories
+      file:
+        path: "{{ item }}"
+        state: directory
+      with_items:
+        - "{{ zookeeper_home }}"
+        - "{{ zookeeper_data_dir }}"
+        - "{{ zookeeper_config_dir }}"
+
+    - name: Download ZooKeeper
+      get_url:
+        url: "https://dlcdn.apache.org/zookeeper/zookeeper-{{ zookeeper_version }}/apache-zookeeper-{{ zookeeper_version }}-bin.tar.gz"
+        dest: "/tmp/zookeeper-{{ zookeeper_version }}.tar.gz"
+
+    - name: Extract ZooKeeper
+      unarchive:
+        src: "/tmp/zookeeper-{{ zookeeper_version }}.tar.gz"
+        dest: "{{ zookeeper_home }}"
+        remote_src: yes
+        creates: "{{ zookeeper_home }}/apache-zookeeper-{{ zookeeper_version }}-bin"
+
+    - name: Copy ZooKeeper configuration file
+      copy:
+        src: "{{ playbook_dir }}/zookeeper_conf/zoo.cfg"
+        dest: "/home/zookeeper/apache-zookeeper-3.8.1-bin/conf/zoo.cfg"
+
+   
+    - name: Add myid file
+      copy:
+        content: "{{ item.myid }}"
+        dest: "{{ zookeeper_data_dir }}/myid"
+      with_items: "{{ host_list }}"
+   
+    - name: Start ZooKeeper
+      command: "{{ zookeeper_home }}/apache-zookeeper-{{ zookeeper_version }}-bin/bin/zkServer.sh start"
+
+
+
+  handlers:
+    - name: Reload environment variables
+      become: yes
+      shell: '. /etc/environment'
